@@ -36,19 +36,25 @@ if menu == "今日評分":
             u_comment = st.text_area("寫點評語")
             submit = st.form_submit_button("送出評分")
             
-            if submit and u_name:
-                new_data = pd.DataFrame([{
-                    "date": today_str,
-                    "meal_name": meal_name,
-                    "user_name": u_name,
-                    "score": u_score,
-                    "comment": u_comment,
-                    "timestamp": datetime.now().strftime("%H:%M:%S")
-                }])
-                updated_df = pd.concat([df, new_data], ignore_index=True)
-                conn.update(data=updated_df)
-                st.success("評分成功！")
-                st.rerun()
+if submit and u_name:
+    # 確保資料格式一致
+    new_data = pd.DataFrame([{
+        "date": str(today_str),
+        "meal_name": str(meal_name),
+        "user_name": str(u_name),
+        "score": float(u_score),
+        "comment": str(u_comment),
+        "timestamp": datetime.now().strftime("%H:%M:%S")
+    }])
+    
+    # 讀取最新資料後再合併，避免覆蓋
+    current_df = conn.read()
+    updated_df = pd.concat([current_df, new_data], ignore_index=True)
+    
+    # 執行更新
+    conn.update(data=updated_df)
+    st.success("評分成功！")
+    st.rerun()
 
 # --- 2. 歷史紀錄模式 ---
 elif menu == "歷史紀錄":
@@ -75,3 +81,4 @@ elif menu == "管理員登入":
             updated_df = pd.concat([df, new_entry], ignore_index=True)
             conn.update(data=updated_df)
             st.success("餐點已更新！")
+
