@@ -12,8 +12,9 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # 讀取現有資料的函式 (增加錯誤處理)
 def get_data():
     try:
-        return conn.read()
-    except:
+        # 加入 ttl=0 代表不使用暫存，每次都從 Google 抓新的
+        return conn.read(ttl=0) 
+    except Exception as e:
         return pd.DataFrame(columns=['date', 'meal_name', 'user_name', 'score', 'comment', 'timestamp'])
 
 df = get_data()
@@ -119,4 +120,5 @@ elif menu == "管理員登入":
                 st.rerun()
             else:
                 st.error("請輸入餐點名稱")
+
 
