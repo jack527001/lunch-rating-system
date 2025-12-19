@@ -1,44 +1,77 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-# --- 設定 Google 試算表連接 (簡化版：使用 CSV 讀取) ---
-# 請將下方的 SHEET_ID 換成你剛才複製的那串 ID
-SHEET_ID = "你的_GOOGLE_試算表_ID"
-MENU_URL = f"https://docs.google.com/spreadsheets/d/1aKqyyuiTYKTCbCepMa5mzUdosfdgFPwbdlfQHP-fx-I/gviz/tq?tqx=out:csv&sheet=Sheet1"
-RATINGS_URL = f"https://docs.google.com/spreadsheets/d/1aKqyyuiTYKTCbCepMa5mzUdosfdgFPwbdlfQHP-fx-I/gviz/tq?tqx=out:csv&sheet=Ratings"
+st.set_page_config(page_title="公司午餐評分系統", page_icon="🍱")
 
-# 注意：寫入功能在 Streamlit Cloud 上需要透過 Google Sheets API 比較穩定
-# 這裡先提供邏輯框架，建議直接使用 st.experimental_connection 或直接用我們初版的改良
-# 為了讓你能在雲端「永久保存」，我們加上歷史紀錄查詢
+# --- 連接 Google Sheets ---
+# 在 Streamlit Cloud 的 Settings -> Secrets 放入網址 (稍後教學)
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-st.set_page_config(page_title="公司午餐評分系統 V2", page_icon="🍱", layout="wide")
+# 讀取現有資料
+try:
+    df = conn.read()
+except:
+    df = pd.DataFrame(columns=['date', 'meal_name', 'user_name', 'score', 'comment', 'timestamp'])
 
-st.title("🍱 公司午餐評分系統 (含歷史紀錄)")
+st.title("🍱 公司午餐評分系統")
 
-# --- 側邊欄：管理與切換 ---
-mode = st.sidebar.radio("切換模式", ["今日評分", "歷史紀錄查詢", "管理員登入"])
+# --- 側邊欄導覽 ---
+menu = st.sidebar.selectbox("功能選單", ["今日評分", "歷史紀錄", "管理員登入"])
+today_str = datetime.now().strftime('%Y-%m-%d')
 
-if mode == "今日評分":
-    st.header("🍴 今日餐點評分")
-    # 這裡顯示今日餐點與評分表單... (邏輯同前，但資料來源改為試算表)
+# --- 1. 今日評分模式 ---
+if menu == "今日評分":
+    # 找出今天的餐點名稱
+    today_meal = df[df['date'] == today_str]['meal_name'].unique()
+    meal_name = today_meal[0] if len(today_meal) > 0 else "管理員尚未設定今日餐點"
     
-elif mode == "歷史紀錄查詢":
-    st.header("📜 往日餐點與評分紀錄")
-    # 這裡加入日期選擇器
-    search_date = st.date_input("選擇日期", datetime.now())
-    date_str = search_date.strftime('%Y-%m-%d')
+    st.header(f"📅 今日餐點：{meal_name}")
     
-    st.info(f"正在查詢 {date_str} 的紀錄...")
-    # 從試算表讀取該日期的 meal_name 與評分並顯示
+    if meal_name != "管理員尚未設定今日餐點":
+        with st.form("rating_form"):
+            u_name = st.text_input("你的暱稱")
+            u_score = st.number_input("評分 (0-5)", 0.0, 5.0, 4.0, 0.1)
+            u_comment = st.text_area("寫點評語")
+            submit = st.form_submit_button("送出評分")
+            
+            if submit and u_name:
+                new_data = pd.DataFrame([{
+                    "date": today_str,
+                    "meal_name": meal_name,
+                    "user_name": u_name,
+                    "score": u_score,
+                    "comment": u_comment,
+                    "timestamp": datetime.now().strftime("%H:%M:%S")
+                }])
+                updated_df = pd.concat([df, new_data], ignore_index=True)
+                conn.update(data=updated_df)
+                st.success("評分成功！")
+                st.rerun()
 
-elif mode == "管理員登入":
-    st.header("⚙️ 管理員後台")
-    pwd = st.text_input("管理密碼", type="password")
+# --- 2. 歷史紀錄模式 ---
+elif menu == "歷史紀錄":
+    st.header("📜 歷史評分紀錄")
+    all_dates = df['date'].unique()
+    sel_date = st.selectbox("選擇日期", sorted(all_dates, reverse=True))
+    
+    day_data = df[df['date'] == sel_date]
+    if not day_data.empty:
+        meal = day_data['meal_name'].iloc[0]
+        avg = day_data[day_data['user_name'].notna()]['score'].mean()
+        st.subheader(f"🍴 餐點：{meal}")
+        st.metric("平均得分", f"{avg:.1f} ⭐")
+        st.dataframe(day_data[day_data['user_name'].notna()][['user_name', 'score', 'comment', 'timestamp']])
+
+# --- 3. 管理員模式 ---
+elif menu == "管理員登入":
+    pwd = st.text_input("輸入管理密碼", type="password")
     if pwd == "admin123":
-        st.subheader("設定每日餐點")
-        target_date = st.date_input("設定哪一天的餐點？", datetime.now())
-        meal_input = st.text_input("餐點名稱")
-        if st.button("確認更新"):
-            # 這裡寫入試算表的邏輯
-            st.success(f"已成功設定 {target_date} 的餐點為：{meal_input}")
+        st.header("⚙️ 設定今日餐點")
+        new_meal = st.text_input("今天的午餐是什麼？")
+        if st.button("發布餐點"):
+            new_entry = pd.DataFrame([{"date": today_str, "meal_name": new_meal}])
+            updated_df = pd.concat([df, new_entry], ignore_index=True)
+            conn.update(data=updated_df)
+            st.success("餐點已更新！")
