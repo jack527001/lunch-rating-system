@@ -26,49 +26,54 @@ today_str = datetime.now().strftime('%Y-%m-%d')
 
 # --- 3. 今日評分模式 ---
 if menu == "今日評分":
-    # 檢查今天是否有餐點
-    today_meal_row = df[df['date'] == today_str]
-    # 過濾掉只有日期但沒有餐點名稱的髒資料
-    today_meal_row = today_meal_row[today_meal_row['meal_name'].notna()]
+    # 核心修正 1：確保 df 的日期欄位全部變成純文字字串，並過濾掉空值
+    df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+    current_today = datetime.now().strftime('%Y-%m-%d')
     
-    if not today_meal_row.empty:
-        meal_name = today_meal_row['meal_name'].iloc[0]
+    # 核心修正 2：不分管理員或評分行，只要日期對了就抓第一個餐點名稱
+    today_data = df[df['date'] == current_today].dropna(subset=['meal_name'])
+    
+    if not today_data.empty:
+        # 抓取今天最新設定的餐點名稱
+        meal_name = today_data['meal_name'].iloc[0]
         st.header(f"📅 今日餐點：{meal_name}")
         
-        # 顯示目前的平均分
-        today_ratings = df[(df['date'] == today_str) & (df['user_name'].notna())]
+        # 顯示目前的平均分（排除掉餐點設定行）
+        today_ratings = today_data[today_data['user_name'].notna()]
         if not today_ratings.empty:
             avg_score = today_ratings['score'].mean()
             st.metric("目前平均得分", f"{avg_score:.1f} ⭐")
 
         # 評分表單
-        with st.form("rating_form"):
+        with st.form("rating_form", clear_on_submit=True):
             u_name = st.text_input("你的暱稱 (必填)")
-            u_score = st.number_input("評分 (0-5)", 0.0, 5.0, 4.0, 0.1)
+            u_score = st.slider("評分 (0-5)", 0.0, 5.0, 4.0, 0.5)
             u_comment = st.text_area("寫點評語 (選填)")
             submit_btn = st.form_submit_button("送出評分")
             
-            # --- 重要：處理提交邏輯必須在 st.form 裡面或是緊跟在後 ---
             if submit_btn:
                 if not u_name:
                     st.error("請輸入暱稱再送出！")
                 else:
                     new_rating = pd.DataFrame([{
-                        "date": today_str,
+                        "date": current_today,
                         "meal_name": meal_name,
                         "user_name": u_name,
                         "score": u_score,
                         "comment": u_comment,
                         "timestamp": datetime.now().strftime("%H:%M:%S")
                     }])
-                    # 重新讀取確保資料最新，然後合併
+                    # 重新讀取並上傳
                     latest_df = get_data()
                     updated_df = pd.concat([latest_df, new_rating], ignore_index=True)
                     conn.update(data=updated_df)
                     st.success("評分成功！")
                     st.rerun()
     else:
-        st.info("👋 嗨！管理員還沒設定今天的午餐名稱喔。")
+        # Debug 資訊：如果還是失敗，這行會顯示系統抓到的日期，方便比對
+        st.info(f"👋 嗨！管理員還沒設定今天的午餐名稱喔。")
+        st.write(f"系統偵測今日日期為: `{current_today}`")
+        st.write("目前試算表內有的日期:", df['date'].unique().tolist())
 
 # --- 4. 歷史紀錄模式 ---
 elif menu == "歷史紀錄":
@@ -114,3 +119,4 @@ elif menu == "管理員登入":
                 st.rerun()
             else:
                 st.error("請輸入餐點名稱")
+
